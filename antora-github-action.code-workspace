@@ -1,0 +1,24 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.yml": "yaml",
+      "*.adoc": "asciidoc"
+    },
+    "yaml.schemas": {
+      "https://json.schemastore.org/github-action.json": "action.yml",
+      "https://json.schemastore.org/github-workflow.json": "examples/*.yml"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "redhat.vscode-yaml",
+      "asciidoctor.asciidoctor-vscode"
+    ]
+  }
+}
+
