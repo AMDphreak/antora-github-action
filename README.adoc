@@ -60,6 +60,18 @@ This action **requires** a `package.json` with Antora as a local dependency:
 ----
 {
   "devDependencies": {
+    "antora": "^3.1"
+  }
+}
+----
+
+The `antora` package bundles both the CLI and site generator.
+Alternatively, you can install them separately:
+
+[source,json]
+----
+{
+  "devDependencies": {
     "@antora/cli": "^3.1",
     "@antora/site-generator": "^3.1"
   }

@@ -69,10 +69,12 @@
 # Your package.json should include:
 #   {
 #     "devDependencies": {
-#       "@antora/cli": "^3.1",
-#       "@antora/site-generator": "^3.1"
+#       "antora": "^3.1"
 #     }
 #   }
+#
+# The "antora" package bundles both CLI and site generator.
+# Alternatively: "@antora/cli" + "@antora/site-generator" separately.
 #
 # -----------------------------------------------------------------------------
 # SEE ALSO
@@ -210,24 +212,23 @@ runs:
           echo "Global installation (npm install -g) is not supported because it"
           echo "leads to unreproducible builds."
           echo ""
-          echo "Please create a package.json with Antora dependencies:"
+          echo "Please create a package.json with Antora as a dependency:"
           echo ""
           echo '  {'
           echo '    "devDependencies": {'
-          echo '      "@antora/cli": "^3.1",'
-          echo '      "@antora/site-generator": "^3.1"'
+          echo '      "antora": "^3.1"'
           echo '    }'
           echo '  }'
           echo ""
-          echo "Then run: npm install"
+          echo "Then run: npm install (or pnpm install)"
           echo ""
           echo "See: https://docs.antora.org/antora/latest/install/install-antora/#locally-vs-globally"
           exit 1
         fi
         
-        # Check if @antora/cli is in dependencies
-        if ! grep -q "@antora/cli" package.json; then
-          echo "::warning::@antora/cli not found in package.json - make sure Antora is installed"
+        # Check if antora or @antora/cli is in dependencies
+        if ! grep -qE '"antora"|"@antora/cli"' package.json; then
+          echo "::warning::antora package not found in package.json - make sure Antora is installed"
         fi
 
     # -------------------------------------------------------------------------
