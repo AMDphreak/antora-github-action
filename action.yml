@@ -47,6 +47,17 @@
 # Bitbucket:
 #   - For private repos: App password with 'repository:read' permission
 #
+# -----------------------------------------------------------------------------
+# SEE ALSO
+# -----------------------------------------------------------------------------
+#
+# For a DIY workflow without this action (more transparent, same result), see:
+#   https://github.com/amdphreak/antora-workflow-templates
+#
+# The templates repo contains side-by-side examples showing:
+#   - diy-workflow.yml: All steps spelled out explicitly
+#   - action-workflow.yml: Using this reusable action
+#
 # =============================================================================
 
 name: 'Antora Build'
@@ -89,13 +100,6 @@ inputs:
         https://oauth2:${{ secrets.GL_PAT }}@gitlab.com
       
       This is the RECOMMENDED way to provide credentials in GitHub Actions.
-    required: false
-
-  git_credentials_path:
-    description: |
-      Path to a file containing git credentials (alternative to git_credentials).
-      The file should be in .git-credentials format.
-      Useful when credentials are stored in a secret file or mounted volume.
     required: false
 
   github_token:
@@ -176,11 +180,16 @@ inputs:
     required: false
     default: 'warn'
 
+  working_directory:
+    description: |
+      Directory to run the build in. Useful for monorepos where the
+      Antora playbook is in a subdirectory (e.g., 'docs' or 'site').
+    required: false
+    default: '.'
+
 outputs:
   site_dir:
     description: 'Path to the generated site directory'
-  artifact_name:
-    description: 'Name of the uploaded artifact (if artifact upload is enabled)'
 
 runs:
   using: 'composite'
@@ -204,24 +213,15 @@ runs:
       shell: bash
       env:
         GIT_CREDENTIALS_INPUT: ${{ inputs.git_credentials }}
-        GIT_CREDENTIALS_PATH_INPUT: ${{ inputs.git_credentials_path }}
         GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
       run: |
         # Create credentials file location
         CREDS_FILE="$HOME/.git-credentials"
         
-        # Priority: git_credentials > git_credentials_path > github_token
+        # Priority: git_credentials > github_token
         if [ -n "$GIT_CREDENTIALS_INPUT" ]; then
           echo "::debug::Using git_credentials input"
           echo "$GIT_CREDENTIALS_INPUT" > "$CREDS_FILE"
-        elif [ -n "$GIT_CREDENTIALS_PATH_INPUT" ]; then
-          echo "::debug::Using git_credentials_path input"
-          if [ -f "$GIT_CREDENTIALS_PATH_INPUT" ]; then
-            cp "$GIT_CREDENTIALS_PATH_INPUT" "$CREDS_FILE"
-          else
-            echo "::error::Credentials file not found: $GIT_CREDENTIALS_PATH_INPUT"
-            exit 1
-          fi
         elif [ -n "$GITHUB_TOKEN_INPUT" ]; then
           echo "::debug::Using github_token input"
           echo "https://x-access-token:${GITHUB_TOKEN_INPUT}@github.com" > "$CREDS_FILE"
@@ -269,6 +269,7 @@ runs:
     # -------------------------------------------------------------------------
     - name: Build Antora site
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         PLAYBOOK: ${{ inputs.playbook }}
         FETCH: ${{ inputs.fetch }}
@@ -295,6 +296,11 @@ runs:
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
+        WORKING_DIR: ${{ inputs.working_directory }}
       run: |
-        echo "site_dir=$OUTPUT_DIR" >> $GITHUB_OUTPUT
+        if [ "$WORKING_DIR" = "." ]; then
+          echo "site_dir=$OUTPUT_DIR" >> $GITHUB_OUTPUT
+        else
+          echo "site_dir=$WORKING_DIR/$OUTPUT_DIR" >> $GITHUB_OUTPUT
+        fi
 

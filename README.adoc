@@ -8,6 +8,12 @@
 
 Build https://antora.org[Antora] documentation sites in GitHub Actions with full support for private repositories, multi-repository aggregation, and custom extensions.
 
+[TIP]
+====
+**Prefer to see all the steps explicitly?** +
+Check out https://github.com/amdphreak/antora-workflow-templates[antora-workflow-templates] for a DIY workflow template with everything spelled out. That repo also includes a side-by-side comparison showing how the DIY approach maps to this action's inputs.
+====
+
 toc::[]
 
 == Features
