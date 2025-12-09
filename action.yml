@@ -48,6 +48,33 @@
 #   - For private repos: App password with 'repository:read' permission
 #
 # -----------------------------------------------------------------------------
+# WHY LOCAL INSTALLATION (NOT GLOBAL)
+# -----------------------------------------------------------------------------
+#
+# This action REQUIRES a package.json with Antora as a local dependency.
+# We do NOT support global installation (`npm install -g`) because:
+#
+#   1. Reproducibility: Local install + lockfile = same version every build
+#   2. Version control: package.json pins the exact Antora version
+#   3. Best practice: The Antora docs recommend local installation
+#   4. Avoids "works on my machine": CI and local dev use same versions
+#
+# Global installs cause problems because:
+#   - "latest" resolves to whatever version exists at build time
+#   - No lockfile means no guarantee of consistent builds
+#   - Breaking changes in new versions can silently break your CI
+#
+# See: https://docs.antora.org/antora/latest/install/install-antora/#locally-vs-globally
+#
+# Your package.json should include:
+#   {
+#     "devDependencies": {
+#       "@antora/cli": "^3.1",
+#       "@antora/site-generator": "^3.1"
+#     }
+#   }
+#
+# -----------------------------------------------------------------------------
 # SEE ALSO
 # -----------------------------------------------------------------------------
 #
@@ -65,6 +92,7 @@ description: >
   Build Antora documentation sites with support for private repositories,
   multi-repo aggregation, and custom extensions. Outputs a static site
   ready for deployment to GitHub Pages, Netlify, or any static host.
+  Requires package.json with @antora/cli as a dependency.
 author: 'AMDphreak'
 
 branding:
@@ -119,35 +147,6 @@ inputs:
   # BUILD CONFIGURATION
   # ---------------------------------------------------------------------------
 
-  antora_version:
-    description: |
-      Antora CLI version to use. Defaults to 'latest'.
-      Examples: '3.1.7', '3.1', 'latest'
-    required: false
-    default: 'latest'
-
-  generator:
-    description: |
-      Site generator package. Defaults to the standard generator.
-      Use this to specify a custom generator like @antora/atlas-extension.
-    required: false
-    default: '@antora/site-generator'
-
-  extensions:
-    description: |
-      Space-separated list of Antora extensions to install.
-      These are npm packages that extend Antora's functionality.
-      
-      Example: '@antora/lunr-extension @antora/collector-extension'
-      
-      Common extensions:
-        @antora/lunr-extension     - Full-text search
-        @antora/collector-extension - Collect content from other sources
-        @antora/pdf-extension      - Generate PDF output
-        asciidoctor-kroki          - Diagram generation
-    required: false
-    default: ''
-
   node_version:
     description: |
       Node.js version to use. Antora 3.x requires Node.js 16+.
@@ -195,7 +194,44 @@ runs:
   using: 'composite'
   steps:
     # -------------------------------------------------------------------------
-    # Step 1: Setup Node.js
+    # Step 1: Verify package.json exists
+    # -------------------------------------------------------------------------
+    # We require local installation for reproducible builds.
+    # See header comments for why global installs are not supported.
+    # -------------------------------------------------------------------------
+    - name: Verify package.json exists
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ ! -f "package.json" ]; then
+          echo "::error::No package.json found in ${{ inputs.working_directory }}"
+          echo ""
+          echo "This action requires Antora to be installed as a local dependency."
+          echo "Global installation (npm install -g) is not supported because it"
+          echo "leads to unreproducible builds."
+          echo ""
+          echo "Please create a package.json with Antora dependencies:"
+          echo ""
+          echo '  {'
+          echo '    "devDependencies": {'
+          echo '      "@antora/cli": "^3.1",'
+          echo '      "@antora/site-generator": "^3.1"'
+          echo '    }'
+          echo '  }'
+          echo ""
+          echo "Then run: npm install"
+          echo ""
+          echo "See: https://docs.antora.org/antora/latest/install/install-antora/#locally-vs-globally"
+          exit 1
+        fi
+        
+        # Check if @antora/cli is in dependencies
+        if ! grep -q "@antora/cli" package.json; then
+          echo "::warning::@antora/cli not found in package.json - make sure Antora is installed"
+        fi
+
+    # -------------------------------------------------------------------------
+    # Step 2: Setup Node.js
     # -------------------------------------------------------------------------
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -203,7 +239,32 @@ runs:
         node-version: ${{ inputs.node_version }}
 
     # -------------------------------------------------------------------------
-    # Step 2: Configure Git Credentials
+    # Step 3: Detect package manager (pnpm vs npm)
+    # -------------------------------------------------------------------------
+    - name: Detect package manager
+      id: detect-pm
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        if [ -f "pnpm-lock.yaml" ]; then
+          echo "manager=pnpm" >> $GITHUB_OUTPUT
+          echo "Detected pnpm (pnpm-lock.yaml found)"
+        else
+          echo "manager=npm" >> $GITHUB_OUTPUT
+          echo "Using npm"
+        fi
+
+    # -------------------------------------------------------------------------
+    # Step 4: Setup pnpm (if detected)
+    # -------------------------------------------------------------------------
+    - name: Setup pnpm
+      if: steps.detect-pm.outputs.manager == 'pnpm'
+      uses: pnpm/action-setup@v4
+      with:
+        package_json_file: ${{ inputs.working_directory }}/package.json
+
+    # -------------------------------------------------------------------------
+    # Step 5: Configure Git Credentials
     # -------------------------------------------------------------------------
     # This step sets up authentication for private repositories.
     # Antora reads credentials from the GIT_CREDENTIALS environment variable
@@ -235,37 +296,24 @@ runs:
         fi
 
     # -------------------------------------------------------------------------
-    # Step 3: Install Antora and Extensions
+    # Step 6: Install Dependencies
     # -------------------------------------------------------------------------
-    - name: Install Antora
+    - name: Install dependencies
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
-        ANTORA_VERSION: ${{ inputs.antora_version }}
-        GENERATOR: ${{ inputs.generator }}
-        EXTENSIONS: ${{ inputs.extensions }}
+        PKG_MANAGER: ${{ steps.detect-pm.outputs.manager }}
       run: |
-        # Determine version suffix
-        if [ "$ANTORA_VERSION" = "latest" ]; then
-          VERSION_SUFFIX=""
+        if [ "$PKG_MANAGER" = "pnpm" ]; then
+          echo "Installing dependencies with pnpm..."
+          pnpm install --frozen-lockfile
         else
-          VERSION_SUFFIX="@$ANTORA_VERSION"
+          echo "Installing dependencies with npm..."
+          npm ci
         fi
-        
-        # Install Antora CLI and generator
-        echo "Installing @antora/cli${VERSION_SUFFIX} and ${GENERATOR}${VERSION_SUFFIX}..."
-        npm install -g "@antora/cli${VERSION_SUFFIX}" "${GENERATOR}${VERSION_SUFFIX}"
-        
-        # Install extensions if specified
-        if [ -n "$EXTENSIONS" ]; then
-          echo "Installing extensions: $EXTENSIONS"
-          npm install -g $EXTENSIONS
-        fi
-        
-        # Verify installation
-        antora --version
 
     # -------------------------------------------------------------------------
-    # Step 4: Build the Antora Site
+    # Step 7: Build the Antora Site
     # -------------------------------------------------------------------------
     - name: Build Antora site
       shell: bash
@@ -274,6 +322,7 @@ runs:
         PLAYBOOK: ${{ inputs.playbook }}
         FETCH: ${{ inputs.fetch }}
         LOG_LEVEL: ${{ inputs.log_level }}
+        PKG_MANAGER: ${{ steps.detect-pm.outputs.manager }}
         # Pass credentials via environment for Antora's git operations
         GIT_CREDENTIALS: ${{ inputs.git_credentials }}
       run: |
@@ -286,11 +335,17 @@ runs:
         
         ARGS="$ARGS --log-level $LOG_LEVEL"
         
-        echo "Running: antora $ARGS $PLAYBOOK"
-        antora $ARGS "$PLAYBOOK"
+        # Run antora using the appropriate package manager
+        if [ "$PKG_MANAGER" = "pnpm" ]; then
+          echo "Running: pnpm exec antora $ARGS $PLAYBOOK"
+          pnpm exec antora $ARGS "$PLAYBOOK"
+        else
+          echo "Running: npx antora $ARGS $PLAYBOOK"
+          npx antora $ARGS "$PLAYBOOK"
+        fi
 
     # -------------------------------------------------------------------------
-    # Step 5: Set Outputs
+    # Step 8: Set Outputs
     # -------------------------------------------------------------------------
     - name: Set outputs
       shell: bash
@@ -303,4 +358,3 @@ runs:
         else
           echo "site_dir=$WORKING_DIR/$OUTPUT_DIR" >> $GITHUB_OUTPUT
         fi
-

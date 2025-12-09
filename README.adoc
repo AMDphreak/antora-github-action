@@ -52,6 +52,37 @@ jobs:
           publish_dir: ./build/site
 ----
 
+== Prerequisites
+
+This action **requires** a `package.json` with Antora as a local dependency:
+
+[source,json]
+----
+{
+  "devDependencies": {
+    "@antora/cli": "^3.1",
+    "@antora/site-generator": "^3.1"
+  }
+}
+----
+
+And a lockfile (`package-lock.json` or `pnpm-lock.yaml`) for reproducible builds.
+
+[WARNING]
+====
+**Global installation is not supported.**
+
+Installing Antora globally (`npm install -g`) leads to unreproducible builds because:
+
+* "latest" resolves to whatever version exists at build time
+* No lockfile means builds can silently break when new versions are released
+* It teaches bad habits incompatible with proper dependency management
+
+The https://docs.antora.org/antora/latest/install/install-antora/#locally-vs-globally[Antora documentation recommends local installation]:
+
+> "Installing Antora locally makes it easier to manage the version of Antora and ensures that the version of Antora matches the version for which the playbook was made."
+====
+
 == Inputs
 
 [cols="1,1,3,1"]
@@ -68,29 +99,9 @@ jobs:
 | Git credentials for private repos (see <<credentials>>)
 | --
 
-| `git_credentials_path`
-| No
-| Path to a credentials file
-| --
-
 | `github_token`
 | No
 | GitHub token for private GitHub repos only
-| --
-
-| `antora_version`
-| No
-| Antora version to install
-| `latest`
-
-| `generator`
-| No
-| Site generator package
-| `@antora/site-generator`
-
-| `extensions`
-| No
-| Space-separated list of extensions to install
 | --
 
 | `node_version`
@@ -102,6 +113,11 @@ jobs:
 | No
 | Output directory for generated site
 | `build/site`
+
+| `working_directory`
+| No
+| Directory to run build in (for monorepos)
+| `.`
 
 | `fetch`
 | No
