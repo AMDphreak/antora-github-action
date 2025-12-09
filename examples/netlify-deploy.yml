@@ -1,0 +1,56 @@
+# =============================================================================
+# Example: Deploy to Netlify
+# =============================================================================
+# Alternative deployment to Netlify instead of GitHub Pages.
+# Netlify offers features like:
+# - Deploy previews for PRs
+# - Split testing
+# - Form handling
+# - Edge functions
+#
+# Prerequisites:
+# 1. Create a Netlify site
+# 2. Get your NETLIFY_AUTH_TOKEN from Netlify user settings
+# 3. Get your NETLIFY_SITE_ID from site settings
+# 4. Add both as repository secrets
+# =============================================================================
+
+name: Build and Deploy to Netlify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Antora site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          git_credentials: |
+            https://x-access-token:${{ secrets.DOCS_PAT }}@github.com
+
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v3
+        with:
+          publish-dir: './build/site'
+          production-branch: main
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Deploy from GitHub Actions - ${{ github.sha }}"
+          # Enable deploy previews for PRs
+          enable-pull-request-comment: true
+          enable-commit-comment: false
+          overwrites-pull-request-comment: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+

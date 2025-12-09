@@ -1,0 +1,77 @@
+# =============================================================================
+# Example: Private Multi-Repository Setup
+# =============================================================================
+# Aggregating documentation from multiple private repositories within
+# a single GitHub organization.
+#
+# Prerequisites:
+# 1. Create a PAT with 'repo' scope (classic) or 'Contents: Read' (fine-grained)
+#    that has access to all content source repositories
+# 2. Add the PAT as a repository secret named 'DOCS_PAT'
+#
+# Corresponding playbook (antora-playbook.yml):
+# ```yaml
+# content:
+#   sources:
+#     - url: https://github.com/your-org/api-docs.git
+#       branches: [main]
+#     - url: https://github.com/your-org/sdk-docs.git
+#       branches: [main, 'v*']
+#     - url: https://github.com/your-org/guides.git
+#       branches: [main]
+# ```
+# =============================================================================
+
+name: Build Multi-Repo Documentation
+
+on:
+  push:
+    branches: [main]
+  
+  # Allow triggering from other repos when their docs change
+  repository_dispatch:
+    types: [docs-updated]
+  
+  # Scheduled rebuild to catch updates from source repos
+  schedule:
+    - cron: '0 */4 * * *'  # Every 4 hours
+  
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    # Minimal permissions - we use PAT for content access
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout documentation repo
+        uses: actions/checkout@v4
+
+      - name: Build Antora site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          # PAT with access to all private content repositories
+          git_credentials: |
+            https://x-access-token:${{ secrets.DOCS_PAT }}@github.com
+          # Enable fetching to get latest from all repos
+          fetch: 'true'
+          log_level: 'info'
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

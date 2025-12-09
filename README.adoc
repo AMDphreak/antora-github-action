@@ -1,0 +1,552 @@
+= Antora Build GitHub Action
+:toc: macro
+:toc-title: Contents
+:toclevels: 3
+:icons: font
+:source-highlighter: highlight.js
+:experimental:
+
+Build https://antora.org[Antora] documentation sites in GitHub Actions with full support for private repositories, multi-repository aggregation, and custom extensions.
+
+toc::[]
+
+== Features
+
+* **Private Repository Access** -- Authenticate with GitHub, GitLab, and Bitbucket using Personal Access Tokens
+* **Multi-Repository Support** -- Aggregate content from multiple repos across different hosts
+* **Custom Extensions** -- Install Antora extensions like Lunr search, Kroki diagrams, and more
+* **Configurable** -- Choose your Antora version, Node.js version, and playbook path
+* **Composite Action** -- Fast execution without Docker build overhead
+
+== Quick Start
+
+[source,yaml]
+----
+name: Build Documentation
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Antora Site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+----
+
+== Inputs
+
+[cols="1,1,3,1"]
+|===
+| Input | Required | Description | Default
+
+| `playbook`
+| No
+| Path to the Antora playbook file
+| `antora-playbook.yml`
+
+| `git_credentials`
+| No
+| Git credentials for private repos (see <<credentials>>)
+| --
+
+| `git_credentials_path`
+| No
+| Path to a credentials file
+| --
+
+| `github_token`
+| No
+| GitHub token for private GitHub repos only
+| --
+
+| `antora_version`
+| No
+| Antora version to install
+| `latest`
+
+| `generator`
+| No
+| Site generator package
+| `@antora/site-generator`
+
+| `extensions`
+| No
+| Space-separated list of extensions to install
+| --
+
+| `node_version`
+| No
+| Node.js version
+| `20`
+
+| `output_dir`
+| No
+| Output directory for generated site
+| `build/site`
+
+| `fetch`
+| No
+| Fetch updates from content sources
+| `true`
+
+| `log_level`
+| No
+| Log level: fatal, error, warn, info, debug
+| `warn`
+|===
+
+== Outputs
+
+[cols="1,3"]
+|===
+| Output | Description
+
+| `site_dir`
+| Path to the generated site directory
+|===
+
+[[credentials]]
+== Authentication & Credentials
+
+Antora fetches content from Git repositories at build time.
+When those repositories are private, you need to provide credentials.
+
+=== How Antora Uses Git Credentials
+
+Antora uses standard Git credential mechanisms:
+
+. **GIT_CREDENTIALS environment variable** -- Antora reads this directly
+. **.git-credentials file** -- Standard Git credential storage
+. **git.credentials in playbook** -- Antora-specific configuration (not recommended for CI)
+
+This action configures both the environment variable and the `.git-credentials` file for maximum compatibility.
+
+=== Credential Format
+
+The `.git-credentials` format is one URL per line:
+
+[source]
+----
+https://<user>:<token>@<host>
+----
+
+==== GitHub Personal Access Token (PAT)
+
+[source]
+----
+https://x-access-token:ghp_xxxxxxxxxxxx@github.com
+----
+
+Required scopes:
+
+* **Classic PAT**: `repo` (for private repos)
+* **Fine-grained PAT**: "Contents" read access on target repositories
+
+==== GitLab Personal Access Token
+
+[source]
+----
+https://oauth2:glpat-xxxxxxxxxxxx@gitlab.com
+----
+
+Or for self-hosted GitLab:
+
+[source]
+----
+https://oauth2:glpat-xxxxxxxxxxxx@gitlab.example.com
+----
+
+Required scopes: `read_repository`
+
+==== Bitbucket App Password
+
+[source]
+----
+https://x-token-auth:xxxxxxxxxxxx@bitbucket.org
+----
+
+Required permissions: `repository:read`
+
+=== Multiple Hosts
+
+For multi-repository setups spanning different Git hosts, provide multiple credentials:
+
+[source,yaml]
+----
+- name: Build Antora Site
+  uses: amdphreak/antora-github-action@v1
+  with:
+    playbook: antora-playbook.yml
+    git_credentials: |
+      https://x-access-token:${{ secrets.GITHUB_PAT }}@github.com
+      https://oauth2:${{ secrets.GITLAB_PAT }}@gitlab.com
+      https://x-token-auth:${{ secrets.BITBUCKET_APP_PWD }}@bitbucket.org
+----
+
+=== Using GITHUB_TOKEN vs. Personal Access Token
+
+The automatic `GITHUB_TOKEN` has limited scope:
+
+[cols="1,1,1"]
+|===
+| Scenario | GITHUB_TOKEN | PAT Required
+
+| Same repo (public)
+| ✅ Works
+| Not needed
+
+| Same repo (private)
+| ✅ Works
+| Not needed
+
+| Same org (private)
+| ❌ No access
+| ✅ Yes
+
+| Cross-org (private)
+| ❌ No access
+| ✅ Yes
+
+| Other hosts (GitLab, etc.)
+| ❌ N/A
+| ✅ Yes
+|===
+
+**Recommendation**: Use a PAT with minimal required permissions for multi-repo documentation projects.
+
+[[multi-repo]]
+== Multi-Repository Configuration Examples
+
+Antora excels at aggregating documentation from multiple repositories.
+Here are common patterns with their corresponding GitHub Actions configurations.
+
+=== Example 1: Single Organization, Multiple Private Repos
+
+Your playbook (`antora-playbook.yml`):
+
+[source,yaml]
+----
+site:
+  title: ACME Documentation
+  url: https://docs.acme.com
+
+content:
+  sources:
+    - url: https://github.com/acme/product-a.git
+      branches: [main, 'v*']
+      start_path: docs
+    - url: https://github.com/acme/product-b.git
+      branches: [main]
+      start_path: docs
+    - url: https://github.com/acme/shared-components.git
+      branches: [main]
+      start_path: docs
+
+ui:
+  bundle:
+    url: https://github.com/acme/docs-ui/releases/latest/download/ui-bundle.zip
+----
+
+GitHub Actions workflow:
+
+[source,yaml]
+----
+name: Build Documentation
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [docs-update]  # Trigger from other repos
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Antora Site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          # PAT with 'repo' scope that has access to all content repos
+          git_credentials: |
+            https://x-access-token:${{ secrets.DOCS_PAT }}@github.com
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+----
+
+=== Example 2: Cross-Platform (GitHub + GitLab)
+
+Playbook with sources from both GitHub and GitLab:
+
+[source,yaml]
+----
+site:
+  title: Hybrid Platform Docs
+  url: https://docs.example.com
+
+content:
+  sources:
+    # Public GitHub repos (no auth needed)
+    - url: https://github.com/example/public-api.git
+      branches: [main]
+    
+    # Private GitHub repo
+    - url: https://github.com/example/internal-services.git
+      branches: [main]
+    
+    # Private GitLab repo
+    - url: https://gitlab.com/example-corp/backend-services.git
+      branches: [main]
+    
+    # Self-hosted GitLab
+    - url: https://gitlab.internal.example.com/platform/core.git
+      branches: [main]
+----
+
+Workflow with multi-host credentials:
+
+[source,yaml]
+----
+name: Build Cross-Platform Docs
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 */6 * * *'  # Rebuild every 6 hours
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Antora Site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          git_credentials: |
+            https://x-access-token:${{ secrets.GITHUB_PAT }}@github.com
+            https://oauth2:${{ secrets.GITLAB_PAT }}@gitlab.com
+            https://oauth2:${{ secrets.INTERNAL_GITLAB_PAT }}@gitlab.internal.example.com
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+----
+
+=== Example 3: Monorepo with External Dependencies
+
+Playbook for a monorepo that also pulls docs from external sources:
+
+[source,yaml]
+----
+site:
+  title: Platform Documentation
+
+content:
+  sources:
+    # Local monorepo paths (uses current checkout)
+    - url: .
+      branches: HEAD
+      start_paths:
+        - packages/api/docs
+        - packages/cli/docs
+        - packages/sdk/docs
+    
+    # External versioned dependency docs
+    - url: https://github.com/example/upstream-library.git
+      branches: ['v2.x', 'v3.x']
+      start_path: docs
+----
+
+Workflow:
+
+[source,yaml]
+----
+name: Build Monorepo Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/*/docs/**'
+      - 'antora-playbook.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version branches
+
+      - name: Build Antora Site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          github_token: ${{ secrets.GITHUB_TOKEN }}  # Only need access to external repo
+----
+
+=== Example 4: With Extensions (Search, Diagrams)
+
+Playbook with extensions:
+
+[source,yaml]
+----
+site:
+  title: Technical Documentation
+
+content:
+  sources:
+    - url: https://github.com/example/docs.git
+
+antora:
+  extensions:
+    - '@antora/lunr-extension'  # Full-text search
+    - 'asciidoctor-kroki'       # Diagrams
+
+asciidoc:
+  extensions:
+    - 'asciidoctor-kroki'
+  attributes:
+    kroki-server-url: https://kroki.io
+----
+
+Workflow installing extensions:
+
+[source,yaml]
+----
+name: Build Docs with Extensions
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Antora Site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          extensions: '@antora/lunr-extension asciidoctor-kroki'
+          git_credentials: |
+            https://x-access-token:${{ secrets.DOCS_PAT }}@github.com
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+----
+
+== Security Best Practices
+
+=== Token Permissions
+
+Always use the minimum required permissions:
+
+[cols="1,2"]
+|===
+| Platform | Recommended Scope
+
+| GitHub (Classic PAT)
+| `repo` (or `public_repo` for public repos only)
+
+| GitHub (Fine-grained)
+| "Contents: Read" on specific repositories
+
+| GitLab
+| `read_repository` scope only
+
+| Bitbucket
+| `repository:read` permission only
+|===
+
+=== Token Rotation
+
+* Rotate tokens regularly (every 90 days recommended)
+* Use GitHub's secret scanning to detect exposed tokens
+* Consider using short-lived tokens where possible
+
+=== Workflow Permissions
+
+Restrict workflow permissions in your repository settings:
+
+[source,yaml]
+----
+# In workflow file
+permissions:
+  contents: read
+  pages: write
+  id-token: write  # For OIDC-based deployments
+----
+
+== Troubleshooting
+
+=== "Repository not found" or "Authentication failed"
+
+. Verify the token has access to the repository
+. Check token hasn't expired
+. Ensure correct credential format (no trailing whitespace)
+. For GitLab, ensure you're using `oauth2` as the username
+
+=== "Could not find start path"
+
+. Check the `start_path` in your playbook matches the actual directory structure
+. Ensure the branch specified exists in the repository
+
+=== Slow builds
+
+. Use `fetch: false` if you don't need to update content sources
+. Consider caching node_modules (though global installs are fast)
+
+=== Extension not found
+
+. Check the extension package name is correct
+. Some extensions require both `antora.extensions` and `asciidoc.extensions` configuration
+
+== Contributing
+
+Contributions are welcome! Please open an issue or pull request.
+
+== License
+
+MIT License. See link:LICENSE[LICENSE] file.
+
+== Acknowledgments
+
+* https://antora.org[Antora] -- The documentation site generator
+* https://github.com/jsqu4re/antora_build[jsqu4re/antora_build] -- Original Docker-based action that inspired this project
+* The Antora community for documentation and support
+
+== Disclaimer
+
+This is a community-maintained action, not officially affiliated with the Antora project.
+The official Antora project is maintained at https://gitlab.com/antora/antora.
+

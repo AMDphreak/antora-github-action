@@ -1,0 +1,56 @@
+# =============================================================================
+# Example: With Extensions (Search, Diagrams, PDF)
+# =============================================================================
+# Using Antora extensions for enhanced functionality:
+# - Lunr search for full-text search
+# - Kroki for diagrams (PlantUML, Mermaid, etc.)
+# - PDF generation (optional)
+#
+# Prerequisites:
+# Configure extensions in your playbook:
+#
+# ```yaml
+# antora:
+#   extensions:
+#     - '@antora/lunr-extension'
+#
+# asciidoc:
+#   extensions:
+#     - 'asciidoctor-kroki'
+#   attributes:
+#     kroki-server-url: https://kroki.io
+#     # Or self-hosted: kroki-server-url: https://kroki.internal.company.com
+# ```
+# =============================================================================
+
+name: Build Documentation with Extensions
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Antora site with extensions
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          # Install required extensions
+          # Space-separated list of npm package names
+          extensions: '@antora/lunr-extension asciidoctor-kroki'
+          # Optional: if your content repos are private
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+

@@ -1,0 +1,89 @@
+# =============================================================================
+# Example: Versioned Documentation
+# =============================================================================
+# Building documentation for multiple versions of a project using Git branches.
+# Antora automatically creates version selectors in the generated site.
+#
+# Corresponding playbook:
+# ```yaml
+# content:
+#   sources:
+#     - url: https://github.com/your-org/your-project.git
+#       branches: [main, 'v1.*', 'v2.*', 'v3.*']
+#       tags: ['v*']  # Optional: include tagged releases
+#       start_path: docs
+#
+# site:
+#   title: Your Project Documentation
+#   start_page: your-component::index.adoc
+# ```
+#
+# Your docs structure in each branch:
+# ```
+# docs/
+# ├── antora.yml         # Component descriptor with version info
+# └── modules/
+#     └── ROOT/
+#         ├── nav.adoc
+#         └── pages/
+#             ├── index.adoc
+#             └── ...
+# ```
+#
+# Example antora.yml for version branches:
+# ```yaml
+# name: your-component
+# version: '2.0'  # Or 'main', '~' for prerelease, etc.
+# title: Your Component
+# nav:
+#   - modules/ROOT/nav.adoc
+# ```
+# =============================================================================
+
+name: Build Versioned Documentation
+
+on:
+  push:
+    branches:
+      - main
+      - 'v*'  # Trigger on version branches too
+    paths:
+      - 'docs/**'
+      - 'antora-playbook.yml'
+  
+  # Trigger when new version tags are pushed
+  push:
+    tags:
+      - 'v*'
+  
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full git history needed for version branches/tags
+          fetch-depth: 0
+
+      - name: Build versioned Antora site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          # Always fetch to get latest from all version branches
+          fetch: 'true'
+          # Use info logging to see which versions are being processed
+          log_level: 'info'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+          # Keep previous versions - don't delete old version folders
+          keep_files: true
+

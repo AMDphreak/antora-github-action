@@ -1,0 +1,68 @@
+# =============================================================================
+# Example: Cross-Platform (GitHub + GitLab)
+# =============================================================================
+# Aggregating documentation from repositories hosted on both GitHub and GitLab.
+# This is common in enterprise environments using GitLab internally.
+#
+# Prerequisites:
+# 1. GitHub PAT with 'repo' scope for private GitHub repos
+# 2. GitLab PAT with 'read_repository' scope
+# 3. Add both as repository secrets: GITHUB_PAT, GITLAB_PAT
+#
+# Corresponding playbook:
+# ```yaml
+# content:
+#   sources:
+#     # Public GitHub repo (no auth needed)
+#     - url: https://github.com/public-org/open-source-project.git
+#       branches: [main]
+#
+#     # Private GitHub repo
+#     - url: https://github.com/your-org/internal-api.git
+#       branches: [main]
+#
+#     # GitLab SaaS repo
+#     - url: https://gitlab.com/your-group/backend-services.git
+#       branches: [main]
+#
+#     # Self-hosted GitLab
+#     - url: https://gitlab.internal.company.com/platform/core.git
+#       branches: [main]
+# ```
+# =============================================================================
+
+name: Build Cross-Platform Documentation
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6 AM
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Antora site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+          # Multiple credentials for different Git hosts
+          # Each line is one credential in .git-credentials format
+          git_credentials: |
+            https://x-access-token:${{ secrets.GITHUB_PAT }}@github.com
+            https://oauth2:${{ secrets.GITLAB_PAT }}@gitlab.com
+            https://oauth2:${{ secrets.INTERNAL_GITLAB_PAT }}@gitlab.internal.company.com
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+          cname: docs.company.com  # Custom domain
+

@@ -1,0 +1,300 @@
+# =============================================================================
+# Antora Build & Publish GitHub Action
+# =============================================================================
+#
+# This action builds Antora documentation sites with full support for:
+#   - Private repository authentication (GitHub, GitLab, Bitbucket)
+#   - Multi-repository content aggregation
+#   - Custom Antora extensions
+#   - Configurable playbook paths
+#
+# -----------------------------------------------------------------------------
+# ABOUT GIT CREDENTIALS IN ANTORA
+# -----------------------------------------------------------------------------
+#
+# Antora fetches content from Git repositories at build time. When those repos
+# are private, Antora needs credentials to access them. There are several ways
+# to provide these credentials:
+#
+# 1. GIT_CREDENTIALS environment variable (recommended for CI)
+#    Format: https://<token>@<host> or https://<user>:<token>@<host>
+#    Example: https://x-access-token:ghp_xxx@github.com
+#
+# 2. git.credentials key in playbook (NOT recommended - exposes tokens)
+#    Use git.credentials.path or git.credentials.contents instead.
+#
+# 3. .git-credentials file (used internally by this action)
+#    Standard Git credential storage format.
+#
+# The GIT_CREDENTIALS format supports multiple hosts (one per line):
+#    https://x-access-token:ghp_xxx@github.com
+#    https://oauth2:glpat_xxx@gitlab.com
+#    https://x-token-auth:xxx@bitbucket.org
+#
+# -----------------------------------------------------------------------------
+# PERSONAL ACCESS TOKEN (PAT) SCOPES
+# -----------------------------------------------------------------------------
+#
+# GitHub:
+#   - For public repos: No token needed
+#   - For private repos: Token needs 'repo' scope (full repo access)
+#   - Fine-grained tokens: Need "Contents" read access on target repos
+#
+# GitLab:
+#   - For private repos: Token needs 'read_repository' scope
+#   - Project access tokens work too (more restrictive, recommended)
+#
+# Bitbucket:
+#   - For private repos: App password with 'repository:read' permission
+#
+# =============================================================================
+
+name: 'Antora Build'
+description: >
+  Build Antora documentation sites with support for private repositories,
+  multi-repo aggregation, and custom extensions. Outputs a static site
+  ready for deployment to GitHub Pages, Netlify, or any static host.
+author: 'AMDphreak'
+
+branding:
+  icon: 'book-open'
+  color: 'blue'
+
+inputs:
+  playbook:
+    description: |
+      Path to the Antora playbook file (YAML).
+      Common names: antora-playbook.yml, site.yml, antora.yml
+    required: false
+    default: 'antora-playbook.yml'
+
+  # ---------------------------------------------------------------------------
+  # CREDENTIAL INPUTS
+  # ---------------------------------------------------------------------------
+  # These inputs configure authentication for private content repositories.
+  # You typically only need ONE of these methods, not all of them.
+  # ---------------------------------------------------------------------------
+
+  git_credentials:
+    description: |
+      Git credentials in .git-credentials format for accessing private repos.
+      Format: https://<user>:<token>@<host>
+      
+      For GitHub PAT:  https://x-access-token:${{ secrets.GH_PAT }}@github.com
+      For GitLab PAT:  https://oauth2:${{ secrets.GL_PAT }}@gitlab.com
+      For Bitbucket:   https://x-token-auth:${{ secrets.BB_TOKEN }}@bitbucket.org
+      
+      Multiple credentials (one per line) for multi-host setups:
+        https://x-access-token:${{ secrets.GH_PAT }}@github.com
+        https://oauth2:${{ secrets.GL_PAT }}@gitlab.com
+      
+      This is the RECOMMENDED way to provide credentials in GitHub Actions.
+    required: false
+
+  git_credentials_path:
+    description: |
+      Path to a file containing git credentials (alternative to git_credentials).
+      The file should be in .git-credentials format.
+      Useful when credentials are stored in a secret file or mounted volume.
+    required: false
+
+  github_token:
+    description: |
+      GitHub token for accessing private GitHub repositories only.
+      This is a convenience input - equivalent to setting git_credentials with:
+        https://x-access-token:<token>@github.com
+      
+      You can use the automatic GITHUB_TOKEN for repos in the same org,
+      or a PAT with 'repo' scope for cross-org private repos.
+      
+      Note: GITHUB_TOKEN only has access to the current repository by default.
+      For multi-repo setups with private repos, use a PAT instead.
+    required: false
+
+  # ---------------------------------------------------------------------------
+  # BUILD CONFIGURATION
+  # ---------------------------------------------------------------------------
+
+  antora_version:
+    description: |
+      Antora CLI version to use. Defaults to 'latest'.
+      Examples: '3.1.7', '3.1', 'latest'
+    required: false
+    default: 'latest'
+
+  generator:
+    description: |
+      Site generator package. Defaults to the standard generator.
+      Use this to specify a custom generator like @antora/atlas-extension.
+    required: false
+    default: '@antora/site-generator'
+
+  extensions:
+    description: |
+      Space-separated list of Antora extensions to install.
+      These are npm packages that extend Antora's functionality.
+      
+      Example: '@antora/lunr-extension @antora/collector-extension'
+      
+      Common extensions:
+        @antora/lunr-extension     - Full-text search
+        @antora/collector-extension - Collect content from other sources
+        @antora/pdf-extension      - Generate PDF output
+        asciidoctor-kroki          - Diagram generation
+    required: false
+    default: ''
+
+  node_version:
+    description: |
+      Node.js version to use. Antora 3.x requires Node.js 16+.
+    required: false
+    default: '20'
+
+  # ---------------------------------------------------------------------------
+  # OUTPUT CONFIGURATION
+  # ---------------------------------------------------------------------------
+
+  output_dir:
+    description: |
+      Directory where the generated site will be written.
+      This should match the 'dir' setting in your playbook's output configuration,
+      or leave it to the playbook default (usually 'build/site').
+    required: false
+    default: 'build/site'
+
+  fetch:
+    description: |
+      Whether to fetch updates from content source repositories.
+      Set to 'true' to always fetch latest content.
+      Set to 'false' to use cached content (faster for repeated builds).
+    required: false
+    default: 'true'
+
+  log_level:
+    description: |
+      Antora log level: 'fatal', 'error', 'warn', 'info', 'debug', 'all'
+    required: false
+    default: 'warn'
+
+outputs:
+  site_dir:
+    description: 'Path to the generated site directory'
+  artifact_name:
+    description: 'Name of the uploaded artifact (if artifact upload is enabled)'
+
+runs:
+  using: 'composite'
+  steps:
+    # -------------------------------------------------------------------------
+    # Step 1: Setup Node.js
+    # -------------------------------------------------------------------------
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    # -------------------------------------------------------------------------
+    # Step 2: Configure Git Credentials
+    # -------------------------------------------------------------------------
+    # This step sets up authentication for private repositories.
+    # Antora reads credentials from the GIT_CREDENTIALS environment variable
+    # or from a .git-credentials file.
+    # -------------------------------------------------------------------------
+    - name: Configure Git credentials
+      shell: bash
+      env:
+        GIT_CREDENTIALS_INPUT: ${{ inputs.git_credentials }}
+        GIT_CREDENTIALS_PATH_INPUT: ${{ inputs.git_credentials_path }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
+      run: |
+        # Create credentials file location
+        CREDS_FILE="$HOME/.git-credentials"
+        
+        # Priority: git_credentials > git_credentials_path > github_token
+        if [ -n "$GIT_CREDENTIALS_INPUT" ]; then
+          echo "::debug::Using git_credentials input"
+          echo "$GIT_CREDENTIALS_INPUT" > "$CREDS_FILE"
+        elif [ -n "$GIT_CREDENTIALS_PATH_INPUT" ]; then
+          echo "::debug::Using git_credentials_path input"
+          if [ -f "$GIT_CREDENTIALS_PATH_INPUT" ]; then
+            cp "$GIT_CREDENTIALS_PATH_INPUT" "$CREDS_FILE"
+          else
+            echo "::error::Credentials file not found: $GIT_CREDENTIALS_PATH_INPUT"
+            exit 1
+          fi
+        elif [ -n "$GITHUB_TOKEN_INPUT" ]; then
+          echo "::debug::Using github_token input"
+          echo "https://x-access-token:${GITHUB_TOKEN_INPUT}@github.com" > "$CREDS_FILE"
+        fi
+        
+        # Configure git to use the credentials file if it exists
+        if [ -f "$CREDS_FILE" ]; then
+          chmod 600 "$CREDS_FILE"
+          git config --global credential.helper "store --file=$CREDS_FILE"
+          echo "::debug::Git credentials configured"
+        fi
+
+    # -------------------------------------------------------------------------
+    # Step 3: Install Antora and Extensions
+    # -------------------------------------------------------------------------
+    - name: Install Antora
+      shell: bash
+      env:
+        ANTORA_VERSION: ${{ inputs.antora_version }}
+        GENERATOR: ${{ inputs.generator }}
+        EXTENSIONS: ${{ inputs.extensions }}
+      run: |
+        # Determine version suffix
+        if [ "$ANTORA_VERSION" = "latest" ]; then
+          VERSION_SUFFIX=""
+        else
+          VERSION_SUFFIX="@$ANTORA_VERSION"
+        fi
+        
+        # Install Antora CLI and generator
+        echo "Installing @antora/cli${VERSION_SUFFIX} and ${GENERATOR}${VERSION_SUFFIX}..."
+        npm install -g "@antora/cli${VERSION_SUFFIX}" "${GENERATOR}${VERSION_SUFFIX}"
+        
+        # Install extensions if specified
+        if [ -n "$EXTENSIONS" ]; then
+          echo "Installing extensions: $EXTENSIONS"
+          npm install -g $EXTENSIONS
+        fi
+        
+        # Verify installation
+        antora --version
+
+    # -------------------------------------------------------------------------
+    # Step 4: Build the Antora Site
+    # -------------------------------------------------------------------------
+    - name: Build Antora site
+      shell: bash
+      env:
+        PLAYBOOK: ${{ inputs.playbook }}
+        FETCH: ${{ inputs.fetch }}
+        LOG_LEVEL: ${{ inputs.log_level }}
+        # Pass credentials via environment for Antora's git operations
+        GIT_CREDENTIALS: ${{ inputs.git_credentials }}
+      run: |
+        # Build command arguments
+        ARGS=""
+        
+        if [ "$FETCH" = "true" ]; then
+          ARGS="$ARGS --fetch"
+        fi
+        
+        ARGS="$ARGS --log-level $LOG_LEVEL"
+        
+        echo "Running: antora $ARGS $PLAYBOOK"
+        antora $ARGS "$PLAYBOOK"
+
+    # -------------------------------------------------------------------------
+    # Step 5: Set Outputs
+    # -------------------------------------------------------------------------
+    - name: Set outputs
+      shell: bash
+      env:
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      run: |
+        echo "site_dir=$OUTPUT_DIR" >> $GITHUB_OUTPUT
+

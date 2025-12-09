@@ -1,0 +1,45 @@
+# =============================================================================
+# Example: Basic Public Repository
+# =============================================================================
+# The simplest case - building docs from a single public repository.
+# No authentication required.
+# =============================================================================
+
+name: Build Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Antora site
+        uses: amdphreak/antora-github-action@v1
+        with:
+          playbook: antora-playbook.yml
+
+      # For pull requests, just upload as artifact for review
+      - name: Upload site artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-preview
+          path: build/site
+          retention-days: 7
+
+      # For main branch, deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/site
+
